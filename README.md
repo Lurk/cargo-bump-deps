@@ -1,11 +1,11 @@
 # cargo-bump-deps
 
-A Cargo subcommand that upgrades dependencies one at a time, verifying each upgrade passes `cargo check`, `cargo test`, and `cargo clippy` before committing. If an upgrade fails, it saves state so you can fix the issue and resume where you left off.
+A Cargo subcommand that upgrades dependencies one at a time, verifying each upgrade passes `cargo check`, `cargo test`, `cargo clippy`, and `cargo fmt --check` before committing. If an upgrade fails, it saves state so you can fix the issue and resume where you left off.
 
 ## Why
 
 - **Lightweight, local-only** — no external service, no PRs, no bot noise. Just run it locally when you want.
-- **Verified upgrades** — each dependency is checked (`check` + `test` + `clippy`) before committing, so a broken upgrade never sneaks in.
+- **Verified upgrades** — each dependency is checked (`check` + `test` + `clippy` + `fmt`) before committing, so a broken upgrade never sneaks in.
 - **Clean git history** — one commit per dependency upgrade, making it easy to bisect or revert.
 
 If Renovate or Dependabot feel like overkill for your project, this is the simpler alternative.
@@ -43,6 +43,9 @@ cargo bump-deps --skip regex
 
 # Control parallel cargo search jobs during discovery (defaults to min(num_cpus, 8))
 cargo bump-deps --jobs 4
+
+# Skip specific checks
+cargo bump-deps --no-clippy --no-fmt
 ```
 
 ## How it works
@@ -50,7 +53,7 @@ cargo bump-deps --jobs 4
 1. Uses `cargo metadata` to find direct dependencies, then queries `cargo search` to discover the latest version of each
 2. For each outdated package:
    - Runs `cargo add <name>@<new_version>`
-   - Runs `cargo check`, `cargo test`, `cargo clippy -- -D warnings`
+   - Runs `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check`
    - If all pass: commits with message `Upgrade <name> <old> -> <new>`
    - If any fail: saves state to `cargo-bump-deps-state.json` and exits
 3. To resume after fixing a failure, run `cargo bump-deps` again
