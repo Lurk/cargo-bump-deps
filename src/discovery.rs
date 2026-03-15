@@ -142,7 +142,13 @@ fn search_dep(
     let latest_version = Version::parse(&latest_str)
         .map_err(|e| format!("{}: failed to parse latest version '{}': {}", name, latest_str, e))?;
 
-    if latest_version <= current_version {
+    // Strip build metadata for comparison (semver spec says it has no precedence)
+    let mut current_cmp = current_version.clone();
+    current_cmp.build = semver::BuildMetadata::EMPTY;
+    let mut latest_cmp = latest_version.clone();
+    latest_cmp.build = semver::BuildMetadata::EMPTY;
+
+    if latest_cmp <= current_cmp {
         return Ok(None);
     }
 
@@ -159,4 +165,39 @@ fn search_dep(
         old_version: current_version,
         new_version: latest_version,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_metadata_only_difference_is_not_an_upgrade() {
+        let current = Version::parse("1.0.6").unwrap();
+        let latest = Version::parse("1.0.6+spec-1.1.0").unwrap();
+
+        // Without stripping, semver considers 1.0.6+spec > 1.0.6
+        assert!(latest > current);
+
+        // After stripping build metadata, they should be equal
+        let mut current_cmp = current.clone();
+        current_cmp.build = semver::BuildMetadata::EMPTY;
+        let mut latest_cmp = latest.clone();
+        latest_cmp.build = semver::BuildMetadata::EMPTY;
+
+        assert!(latest_cmp <= current_cmp);
+    }
+
+    #[test]
+    fn real_upgrade_not_filtered_by_build_metadata_stripping() {
+        let current = Version::parse("1.0.6").unwrap();
+        let latest = Version::parse("1.0.7+build").unwrap();
+
+        let mut current_cmp = current.clone();
+        current_cmp.build = semver::BuildMetadata::EMPTY;
+        let mut latest_cmp = latest.clone();
+        latest_cmp.build = semver::BuildMetadata::EMPTY;
+
+        assert!(latest_cmp > current_cmp);
+    }
 }

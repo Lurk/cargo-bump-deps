@@ -228,7 +228,13 @@ pub fn run(
 
         // All passed — commit
         let commit_msg = format!("Upgrade {} {} -> {}", name, old_version, new_version);
-        runner::git_add_and_commit(&commit_msg)?;
+        let committed = runner::git_add_and_commit(&commit_msg)?;
+        if !committed {
+            println!("{}", format!("SKIP: no changes to commit for {}", name).yellow());
+            state.packages[i].status = PackageStatus::Skipped;
+            state::save_state(&state)?;
+            continue;
+        }
         println!("{}", format!("Committed: {}", commit_msg).green());
 
         state.packages[i].status = PackageStatus::Done;
