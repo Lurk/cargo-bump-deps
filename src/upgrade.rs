@@ -13,6 +13,10 @@ pub fn run(
     exclude: Vec<String>,
     skip: Option<String>,
     jobs: usize,
+    no_check: bool,
+    no_test: bool,
+    no_clippy: bool,
+    no_fmt: bool,
 ) -> Result<()> {
     // Verify Cargo.toml exists
     if !std::path::Path::new("Cargo.toml").exists() {
@@ -33,33 +37,41 @@ pub fn run(
     if !dry_run {
         println!("\n{}", "Running pre-flight checks...".bold());
 
-        let t = Instant::now();
-        println!("\n{}", "Running cargo check...".dimmed());
-        if !runner::cargo_check()? {
-            bail!("Pre-flight failed: cargo check. Fix the issues before running cargo-bump-deps.");
+        if !no_check {
+            let t = Instant::now();
+            println!("\n{}", "Running cargo check...".dimmed());
+            if !runner::cargo_check()? {
+                bail!("Pre-flight failed: cargo check. Fix the issues before running cargo-bump-deps.");
+            }
+            println!("{}", format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green());
         }
-        println!("{}", format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
-        let t = Instant::now();
-        println!("\n{}", "Running cargo test...".dimmed());
-        if !runner::cargo_test()? {
-            bail!("Pre-flight failed: cargo test. Fix the issues before running cargo-bump-deps.");
+        if !no_test {
+            let t = Instant::now();
+            println!("\n{}", "Running cargo test...".dimmed());
+            if !runner::cargo_test()? {
+                bail!("Pre-flight failed: cargo test. Fix the issues before running cargo-bump-deps.");
+            }
+            println!("{}", format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green());
         }
-        println!("{}", format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
-        let t = Instant::now();
-        println!("\n{}", "Running cargo clippy...".dimmed());
-        if !runner::cargo_clippy()? {
-            bail!("Pre-flight failed: cargo clippy. Fix the issues before running cargo-bump-deps.");
+        if !no_clippy {
+            let t = Instant::now();
+            println!("\n{}", "Running cargo clippy...".dimmed());
+            if !runner::cargo_clippy()? {
+                bail!("Pre-flight failed: cargo clippy. Fix the issues before running cargo-bump-deps.");
+            }
+            println!("{}", format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green());
         }
-        println!("{}", format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
-        let t = Instant::now();
-        println!("\n{}", "Running cargo fmt --check...".dimmed());
-        if !runner::cargo_fmt()? {
-            bail!("Pre-flight failed: cargo fmt. Fix the issues before running cargo-bump-deps.");
+        if !no_fmt {
+            let t = Instant::now();
+            println!("\n{}", "Running cargo fmt --check...".dimmed());
+            if !runner::cargo_fmt()? {
+                bail!("Pre-flight failed: cargo fmt. Fix the issues before running cargo-bump-deps.");
+            }
+            println!("{}", format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green());
         }
-        println!("{}", format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
         println!("{}", "\nPre-flight checks passed!".green().bold());
     }
@@ -197,52 +209,60 @@ pub fn run(
         }
 
         // cargo check
-        let t = Instant::now();
-        println!("\n{}", "Running cargo check...".dimmed());
-        if !runner::cargo_check()? {
-            println!("{}", "FAIL: cargo check".red().bold());
-            state.packages[i].status = PackageStatus::Failed;
-            state::save_state(&state)?;
-            print_resume_instructions(&name);
-            bail!("cargo check failed for {}", name);
+        if !no_check {
+            let t = Instant::now();
+            println!("\n{}", "Running cargo check...".dimmed());
+            if !runner::cargo_check()? {
+                println!("{}", "FAIL: cargo check".red().bold());
+                state.packages[i].status = PackageStatus::Failed;
+                state::save_state(&state)?;
+                print_resume_instructions(&name);
+                bail!("cargo check failed for {}", name);
+            }
+            println!("{}", format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green());
         }
-        println!("{}", format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
         // cargo test
-        let t = Instant::now();
-        println!("\n{}", "Running cargo test...".dimmed());
-        if !runner::cargo_test()? {
-            println!("{}", "FAIL: cargo test".red().bold());
-            state.packages[i].status = PackageStatus::Failed;
-            state::save_state(&state)?;
-            print_resume_instructions(&name);
-            bail!("cargo test failed for {}", name);
+        if !no_test {
+            let t = Instant::now();
+            println!("\n{}", "Running cargo test...".dimmed());
+            if !runner::cargo_test()? {
+                println!("{}", "FAIL: cargo test".red().bold());
+                state.packages[i].status = PackageStatus::Failed;
+                state::save_state(&state)?;
+                print_resume_instructions(&name);
+                bail!("cargo test failed for {}", name);
+            }
+            println!("{}", format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green());
         }
-        println!("{}", format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
         // cargo clippy
-        let t = Instant::now();
-        println!("\n{}", "Running cargo clippy...".dimmed());
-        if !runner::cargo_clippy()? {
-            println!("{}", "FAIL: cargo clippy".red().bold());
-            state.packages[i].status = PackageStatus::Failed;
-            state::save_state(&state)?;
-            print_resume_instructions(&name);
-            bail!("cargo clippy failed for {}", name);
+        if !no_clippy {
+            let t = Instant::now();
+            println!("\n{}", "Running cargo clippy...".dimmed());
+            if !runner::cargo_clippy()? {
+                println!("{}", "FAIL: cargo clippy".red().bold());
+                state.packages[i].status = PackageStatus::Failed;
+                state::save_state(&state)?;
+                print_resume_instructions(&name);
+                bail!("cargo clippy failed for {}", name);
+            }
+            println!("{}", format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green());
         }
-        println!("{}", format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
         // cargo fmt
-        let t = Instant::now();
-        println!("\n{}", "Running cargo fmt --check...".dimmed());
-        if !runner::cargo_fmt()? {
-            println!("{}", "FAIL: cargo fmt".red().bold());
-            state.packages[i].status = PackageStatus::Failed;
-            state::save_state(&state)?;
-            print_resume_instructions(&name);
-            bail!("cargo fmt failed for {}", name);
+        if !no_fmt {
+            let t = Instant::now();
+            println!("\n{}", "Running cargo fmt --check...".dimmed());
+            if !runner::cargo_fmt()? {
+                println!("{}", "FAIL: cargo fmt".red().bold());
+                state.packages[i].status = PackageStatus::Failed;
+                state::save_state(&state)?;
+                print_resume_instructions(&name);
+                bail!("cargo fmt failed for {}", name);
+            }
+            println!("{}", format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green());
         }
-        println!("{}", format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
         // All passed — commit
         let commit_msg = format!("Upgrade {} {} -> {}", name, old_version, new_version);

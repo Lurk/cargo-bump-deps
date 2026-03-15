@@ -33,6 +33,22 @@ pub struct DepsArgs {
     /// Number of parallel cargo search jobs during discovery
     #[arg(long, default_value_t = default_jobs(), value_name = "N")]
     pub jobs: usize,
+
+    /// Disable cargo check
+    #[arg(long)]
+    pub no_check: bool,
+
+    /// Disable cargo test
+    #[arg(long)]
+    pub no_test: bool,
+
+    /// Disable cargo clippy
+    #[arg(long)]
+    pub no_clippy: bool,
+
+    /// Disable cargo fmt --check
+    #[arg(long)]
+    pub no_fmt: bool,
 }
 
 fn default_jobs() -> usize {

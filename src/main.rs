@@ -18,6 +18,10 @@ fn main() {
         args.exclude,
         args.skip,
         args.jobs,
+        args.no_check,
+        args.no_test,
+        args.no_clippy,
+        args.no_fmt,
     ) {
         eprintln!("\n{}: {:#}", colored::Colorize::red("Error"), e);
         std::process::exit(1);
