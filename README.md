@@ -43,18 +43,36 @@ cargo bump-deps --jobs 4
 
 # Skip specific checks
 cargo bump-deps --no-clippy --no-fmt
+
+# Keep failed changes in working tree instead of reverting
+cargo bump-deps --no-revert-on-failure
 ```
 
 ## How it works
 
-1. Uses `cargo metadata` to find direct dependencies, then queries `cargo search` to discover the latest version of each
+1. Uses `cargo metadata` to find direct dependencies (deduplicated across workspace members), then queries crates.io API to discover the latest version of each
 2. For each outdated package:
-   - Runs `cargo add <name>@<new_version>`
+   - Updates the version in `Cargo.toml` directly (supports string, inline table, and table formats across workspace root and members)
    - Runs `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check`
-   - If all pass: commits with message `Upgrade <name> <old> -> <new>`
-   - If any fail: saves state to `cargo-bump-deps-state.json` and exits
+   - If all pass: stages only `Cargo.toml` and `Cargo.lock` files and commits with message `Upgrade <name> <old> -> <new>`
+   - If any fail: reverts changes (`git checkout -- .`), saves state, and exits
 3. To resume after fixing a failure, run `cargo bump-deps` again. Use `--reset --exclude <name>` to restart without a problematic package
+
+## Flags
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Show what would be upgraded without changing anything |
+| `--compatible-only` | Only upgrade semver-compatible versions |
+| `--reset` | Delete state file and start fresh |
+| `--exclude <NAME>` | Exclude specific dependencies from upgrade (repeatable) |
+| `--jobs <N>` | Number of parallel crates.io lookup jobs during discovery (default: min(num_cpus, 8)) |
+| `--no-check` | Disable `cargo check` |
+| `--no-test` | Disable `cargo test` |
+| `--no-clippy` | Disable `cargo clippy` |
+| `--no-fmt` | Disable `cargo fmt --check` |
+| `--no-revert-on-failure` | Keep failed dependency changes in the working tree instead of reverting. Leaves uncommitted changes that block resume — you must manually commit or revert before running again |
 
 ## State file
 
-On failure, a `cargo-bump-deps-state.json` file is created in the project root tracking which packages are done, failed, or pending. Running `cargo bump-deps` again resumes from the first failed/pending package. Use `cargo bump-deps --reset` to delete this file and start over.
+On failure, a `cargo-bump-deps-state.json` file is created in the `target/` directory tracking which packages are done, failed, or pending. Running `cargo bump-deps` again resumes from the first failed/pending package. Use `cargo bump-deps --reset` to delete this file and start over.

@@ -131,11 +131,56 @@ pub fn cargo_fmt() -> Result<bool> {
 }
 
 pub fn git_add_and_commit(message: &str) -> Result<bool> {
-    let add_ok = run_command_inherit("git", &["add", "-A"])?;
+    let metadata = cargo_metadata::MetadataCommand::new()
+        .no_deps()
+        .exec()
+        .context("Failed to run cargo metadata")?;
+
+    let mut paths_to_stage: Vec<String> = metadata
+        .packages
+        .iter()
+        .filter(|pkg| metadata.workspace_members.contains(&pkg.id))
+        .map(|pkg| {
+            pkg.manifest_path
+                .as_std_path()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+
+    // Add workspace root Cargo.toml
+    let root_manifest = metadata
+        .workspace_root
+        .as_std_path()
+        .join("Cargo.toml")
+        .to_string_lossy()
+        .into_owned();
+    if !paths_to_stage.contains(&root_manifest) {
+        paths_to_stage.push(root_manifest);
+    }
+
+    // Add Cargo.lock
+    let lock_file = metadata
+        .workspace_root
+        .as_std_path()
+        .join("Cargo.lock")
+        .to_string_lossy()
+        .into_owned();
+    paths_to_stage.push(lock_file);
+
+    let path_refs: Vec<&str> = paths_to_stage.iter().map(|s| s.as_str()).collect();
+    let mut add_args = vec!["add", "--"];
+    add_args.extend(path_refs.iter());
+
+    let add_ok = run_command_inherit("git", &add_args)?;
     if !add_ok {
         return Ok(false);
     }
     run_command_inherit("git", &["commit", "-m", message])
+}
+
+pub fn git_restore() -> Result<bool> {
+    run_command_inherit("git", &["checkout", "--", "."])
 }
 
 pub fn check_git_repo() -> bool {

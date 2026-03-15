@@ -2,21 +2,35 @@ use anyhow::{Result, bail};
 use colored::Colorize;
 use std::time::Instant;
 
+use crate::cli::DepsArgs;
 use crate::discovery;
 use crate::runner;
 use crate::state::{self, PackageStatus, State};
 
-pub fn run(
-    dry_run: bool,
-    reset: bool,
-    compatible_only: bool,
-    exclude: Vec<String>,
-    jobs: usize,
-    no_check: bool,
-    no_test: bool,
-    no_clippy: bool,
-    no_fmt: bool,
-) -> Result<()> {
+struct CheckStep {
+    name: &'static str,
+    label: &'static str,
+    skip: bool,
+    run: fn() -> Result<bool>,
+}
+
+fn run_check_step(step: &CheckStep, context: &str) -> Result<()> {
+    if step.skip {
+        return Ok(());
+    }
+    let t = Instant::now();
+    println!("\n{}", format!("Running {}...", step.label).dimmed());
+    if !(step.run)()? {
+        bail!("{} failed: {}", context, step.name);
+    }
+    println!(
+        "{}",
+        format!("PASS: {} ({:.1}s)", step.name, t.elapsed().as_secs_f64()).green()
+    );
+    Ok(())
+}
+
+pub fn run(args: DepsArgs) -> Result<()> {
     // Verify Cargo.toml exists
     if !std::path::Path::new("Cargo.toml").exists() {
         bail!("No Cargo.toml found in current directory");
@@ -28,80 +42,55 @@ pub fn run(
     }
 
     // Verify clean working tree (skip for dry-run)
-    if !dry_run && !runner::check_git_clean() {
+    if !args.dry_run && !runner::check_git_clean() {
         bail!(
             "Working tree is not clean. Commit or stash your changes before running cargo-bump-deps."
         );
     }
 
+    let steps = [
+        CheckStep {
+            name: "cargo check",
+            label: "cargo check",
+            skip: args.no_check,
+            run: runner::cargo_check,
+        },
+        CheckStep {
+            name: "cargo test",
+            label: "cargo test",
+            skip: args.no_test,
+            run: runner::cargo_test,
+        },
+        CheckStep {
+            name: "cargo clippy",
+            label: "cargo clippy",
+            skip: args.no_clippy,
+            run: runner::cargo_clippy,
+        },
+        CheckStep {
+            name: "cargo fmt",
+            label: "cargo fmt --check",
+            skip: args.no_fmt,
+            run: runner::cargo_fmt,
+        },
+    ];
+
     // Pre-flight checks (skip for dry-run)
-    if !dry_run {
+    if !args.dry_run {
         println!("\n{}", "Running pre-flight checks...".bold());
 
-        if !no_check {
-            let t = Instant::now();
-            println!("\n{}", "Running cargo check...".dimmed());
-            if !runner::cargo_check()? {
-                bail!(
-                    "Pre-flight failed: cargo check. Fix the issues before running cargo-bump-deps."
-                );
-            }
-            println!(
-                "{}",
-                format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green()
-            );
-        }
-
-        if !no_test {
-            let t = Instant::now();
-            println!("\n{}", "Running cargo test...".dimmed());
-            if !runner::cargo_test()? {
-                bail!(
-                    "Pre-flight failed: cargo test. Fix the issues before running cargo-bump-deps."
-                );
-            }
-            println!(
-                "{}",
-                format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green()
-            );
-        }
-
-        if !no_clippy {
-            let t = Instant::now();
-            println!("\n{}", "Running cargo clippy...".dimmed());
-            if !runner::cargo_clippy()? {
-                bail!(
-                    "Pre-flight failed: cargo clippy. Fix the issues before running cargo-bump-deps."
-                );
-            }
-            println!(
-                "{}",
-                format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green()
-            );
-        }
-
-        if !no_fmt {
-            let t = Instant::now();
-            println!("\n{}", "Running cargo fmt --check...".dimmed());
-            if !runner::cargo_fmt()? {
-                bail!(
-                    "Pre-flight failed: cargo fmt. Fix the issues before running cargo-bump-deps."
-                );
-            }
-            println!(
-                "{}",
-                format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green()
-            );
+        for step in &steps {
+            run_check_step(step, "Pre-flight")?;
         }
 
         println!("{}", "\nPre-flight checks passed!".green().bold());
     }
 
     // Handle --reset
-    if reset {
+    if args.reset {
         state::delete_state()?;
         println!("{}", "State file deleted.".green());
-        if dry_run {
+        if args.dry_run {
             // Continue to show dry-run output
         } else {
             return Ok(());
@@ -128,7 +117,8 @@ pub fn run(
     } else {
         // Discover outdated packages
         println!("Checking for outdated dependencies...");
-        let packages = discovery::find_outdated_packages(compatible_only, &exclude, jobs)?;
+        let packages =
+            discovery::find_outdated_packages(args.compatible_only, &args.exclude, args.jobs)?;
 
         if packages.is_empty() {
             println!("{}", "All dependencies are up to date!".green());
@@ -138,7 +128,7 @@ pub fn run(
     };
 
     // Handle --dry-run
-    if dry_run {
+    if args.dry_run {
         println!(
             "\n{}",
             format!("Found {} outdated packages:", state.packages.len()).bold()
@@ -210,72 +200,26 @@ pub fn run(
             continue;
         }
 
-        // cargo check
-        if !no_check {
-            let t = Instant::now();
-            println!("\n{}", "Running cargo check...".dimmed());
-            if !runner::cargo_check()? {
-                println!("{}", "FAIL: cargo check".red().bold());
-                state.packages[i].status = PackageStatus::Failed;
-                state::save_state(&state)?;
-                print_resume_instructions(&name);
-                bail!("cargo check failed for {}", name);
-            }
-            println!(
-                "{}",
-                format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green()
-            );
-        }
+        // Run all check steps
+        let check_failed = steps
+            .iter()
+            .find_map(|step| match run_check_step(step, &name) {
+                Ok(()) => None,
+                Err(e) => Some((step.name, e)),
+            });
 
-        // cargo test
-        if !no_test {
-            let t = Instant::now();
-            println!("\n{}", "Running cargo test...".dimmed());
-            if !runner::cargo_test()? {
-                println!("{}", "FAIL: cargo test".red().bold());
-                state.packages[i].status = PackageStatus::Failed;
-                state::save_state(&state)?;
-                print_resume_instructions(&name);
-                bail!("cargo test failed for {}", name);
-            }
-            println!(
-                "{}",
-                format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green()
-            );
-        }
+        if let Some((step_name, _err)) = check_failed {
+            println!("{}", format!("FAIL: {}", step_name).red().bold());
+            state.packages[i].status = PackageStatus::Failed;
+            state::save_state(&state)?;
 
-        // cargo clippy
-        if !no_clippy {
-            let t = Instant::now();
-            println!("\n{}", "Running cargo clippy...".dimmed());
-            if !runner::cargo_clippy()? {
-                println!("{}", "FAIL: cargo clippy".red().bold());
-                state.packages[i].status = PackageStatus::Failed;
-                state::save_state(&state)?;
-                print_resume_instructions(&name);
-                bail!("cargo clippy failed for {}", name);
+            if !args.no_revert_on_failure {
+                println!("{}", "Reverting changes...".dimmed());
+                runner::git_restore()?;
             }
-            println!(
-                "{}",
-                format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green()
-            );
-        }
 
-        // cargo fmt
-        if !no_fmt {
-            let t = Instant::now();
-            println!("\n{}", "Running cargo fmt --check...".dimmed());
-            if !runner::cargo_fmt()? {
-                println!("{}", "FAIL: cargo fmt".red().bold());
-                state.packages[i].status = PackageStatus::Failed;
-                state::save_state(&state)?;
-                print_resume_instructions(&name);
-                bail!("cargo fmt failed for {}", name);
-            }
-            println!(
-                "{}",
-                format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green()
-            );
+            print_resume_instructions(&name);
+            bail!("{} failed for {}", step_name, name);
         }
 
         // All passed — commit
@@ -329,15 +273,18 @@ pub fn run(
 fn print_resume_instructions(name: &str) {
     println!(
         "\n{}",
-        "Fix the issue, then run `cargo deps` to resume.".yellow()
+        "Fix the issue, then run `cargo bump-deps` to resume.".yellow()
     );
     println!(
         "{}",
         format!(
-            "Run `cargo deps --reset --exclude {}` to restart without this package.",
+            "Run `cargo bump-deps --reset --exclude {}` to restart without this package.",
             name
         )
         .yellow()
     );
-    println!("{}", "Run `cargo deps --reset` to start over.".yellow());
+    println!(
+        "{}",
+        "Run `cargo bump-deps --reset` to start over.".yellow()
+    );
 }

@@ -13,6 +13,7 @@ pub fn find_outdated_packages(
         .exec()
         .context("Failed to run cargo metadata")?;
 
+    let mut seen = std::collections::HashSet::new();
     let workspace_deps: Vec<_> = metadata
         .packages
         .iter()
@@ -20,6 +21,7 @@ pub fn find_outdated_packages(
         .flat_map(|pkg| &pkg.dependencies)
         .filter(|dep| dep.path.is_none())
         .filter(|dep| !exclude.iter().any(|e| e == &dep.name))
+        .filter(|dep| seen.insert(dep.name.clone()))
         .collect();
 
     let total = workspace_deps.len();

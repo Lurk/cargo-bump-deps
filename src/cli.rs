@@ -44,6 +44,12 @@ pub struct DepsArgs {
     /// Disable cargo fmt --check
     #[arg(long)]
     pub no_fmt: bool,
+
+    /// Keep failed dependency changes in the working tree instead of reverting.
+    /// WARNING: leaves uncommitted changes that block resume — you must manually
+    /// commit or revert before running again.
+    #[arg(long)]
+    pub no_revert_on_failure: bool,
 }
 
 fn default_jobs() -> usize {
