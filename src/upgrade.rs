@@ -26,7 +26,7 @@ pub fn run(
 
     // Verify clean working tree (skip for dry-run)
     if !dry_run && !runner::check_git_clean() {
-        bail!("Working tree is not clean. Commit or stash your changes before running cargo-deps.");
+        bail!("Working tree is not clean. Commit or stash your changes before running cargo-bump-deps.");
     }
 
     // Pre-flight checks (skip for dry-run)
@@ -36,21 +36,21 @@ pub fn run(
         let t = Instant::now();
         println!("\n{}", "Running cargo check...".dimmed());
         if !runner::cargo_check()? {
-            bail!("Pre-flight failed: cargo check. Fix the issues before running cargo-deps.");
+            bail!("Pre-flight failed: cargo check. Fix the issues before running cargo-bump-deps.");
         }
         println!("{}", format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
         let t = Instant::now();
         println!("\n{}", "Running cargo test...".dimmed());
         if !runner::cargo_test()? {
-            bail!("Pre-flight failed: cargo test. Fix the issues before running cargo-deps.");
+            bail!("Pre-flight failed: cargo test. Fix the issues before running cargo-bump-deps.");
         }
         println!("{}", format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
         let t = Instant::now();
         println!("\n{}", "Running cargo clippy...".dimmed());
         if !runner::cargo_clippy()? {
-            bail!("Pre-flight failed: cargo clippy. Fix the issues before running cargo-deps.");
+            bail!("Pre-flight failed: cargo clippy. Fix the issues before running cargo-bump-deps.");
         }
         println!("{}", format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green());
 

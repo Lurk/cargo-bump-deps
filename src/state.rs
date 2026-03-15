@@ -7,7 +7,7 @@ use crate::parser::OutdatedPackage;
 
 fn state_file_path() -> PathBuf {
     let target_dir = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".to_string());
-    PathBuf::from(target_dir).join("cargo-deps-state.json")
+    PathBuf::from(target_dir).join("cargo-bump-deps-state.json")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

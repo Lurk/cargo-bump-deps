@@ -4,7 +4,7 @@ use clap::Parser;
 #[command(bin_name = "cargo")]
 pub enum Cli {
     /// Upgrade Cargo dependencies one at a time with verification
-    Deps(DepsArgs),
+    BumpDeps(DepsArgs),
 }
 
 #[derive(Parser)]
@@ -25,6 +25,7 @@ pub struct DepsArgs {
     #[arg(long, value_name = "NAME")]
     pub exclude: Vec<String>,
 
+    // TODO: remove this bacause it is covered by `exclude`
     /// Skip a stuck package and continue with the rest
     #[arg(long, value_name = "NAME")]
     pub skip: Option<String>,

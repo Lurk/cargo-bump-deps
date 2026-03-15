@@ -9,7 +9,7 @@ use clap::Parser;
 use cli::Cli;
 
 fn main() {
-    let Cli::Deps(args) = Cli::parse();
+    let Cli::BumpDeps(args) = Cli::parse();
 
     if let Err(e) = upgrade::run(
         args.dry_run,
