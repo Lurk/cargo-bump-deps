@@ -126,6 +126,10 @@ pub fn cargo_clippy() -> Result<bool> {
     run_command_inherit("cargo", &["clippy", "--", "-D", "warnings"])
 }
 
+pub fn cargo_fmt() -> Result<bool> {
+    run_command_inherit("cargo", &["fmt", "--check"])
+}
+
 pub fn git_add_and_commit(message: &str) -> Result<bool> {
     let add_ok = run_command_inherit("git", &["add", "-A"])?;
     if !add_ok {

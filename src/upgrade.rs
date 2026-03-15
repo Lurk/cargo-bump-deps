@@ -54,6 +54,13 @@ pub fn run(
         }
         println!("{}", format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
+        let t = Instant::now();
+        println!("\n{}", "Running cargo fmt --check...".dimmed());
+        if !runner::cargo_fmt()? {
+            bail!("Pre-flight failed: cargo fmt. Fix the issues before running cargo-bump-deps.");
+        }
+        println!("{}", format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green());
+
         println!("{}", "\nPre-flight checks passed!".green().bold());
     }
 
@@ -224,6 +231,18 @@ pub fn run(
             bail!("cargo clippy failed for {}", name);
         }
         println!("{}", format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green());
+
+        // cargo fmt
+        let t = Instant::now();
+        println!("\n{}", "Running cargo fmt --check...".dimmed());
+        if !runner::cargo_fmt()? {
+            println!("{}", "FAIL: cargo fmt".red().bold());
+            state.packages[i].status = PackageStatus::Failed;
+            state::save_state(&state)?;
+            print_resume_instructions(&name);
+            bail!("cargo fmt failed for {}", name);
+        }
+        println!("{}", format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green());
 
         // All passed — commit
         let commit_msg = format!("Upgrade {} {} -> {}", name, old_version, new_version);
