@@ -16,7 +16,6 @@ fn main() {
         args.reset,
         args.compatible_only,
         args.exclude,
-        args.skip,
         args.jobs,
         args.no_check,
         args.no_test,

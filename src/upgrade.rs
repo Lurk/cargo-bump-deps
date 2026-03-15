@@ -11,7 +11,6 @@ pub fn run(
     reset: bool,
     compatible_only: bool,
     exclude: Vec<String>,
-    skip: Option<String>,
     jobs: usize,
     no_check: bool,
     no_test: bool,
@@ -105,25 +104,6 @@ pub fn run(
         if dry_run {
             // Continue to show dry-run output
         } else {
-            return Ok(());
-        }
-    }
-
-    // Handle --skip
-    if let Some(ref skip_name) = skip {
-        if let Some(mut existing) = state::load_state()? {
-            if existing.skip_package(skip_name) {
-                state::save_state(&existing)?;
-                println!("{}", format!("Skipped package: {}", skip_name).yellow());
-            } else {
-                println!(
-                    "{}",
-                    format!("Package '{}' not found or already done.", skip_name).red()
-                );
-                return Ok(());
-            }
-        } else {
-            println!("{}", "No state file found. Nothing to skip.".red());
             return Ok(());
         }
     }
@@ -353,7 +333,11 @@ fn print_resume_instructions(name: &str) {
     );
     println!(
         "{}",
-        format!("Run `cargo deps --skip {}` to skip this package.", name).yellow()
+        format!(
+            "Run `cargo deps --reset --exclude {}` to restart without this package.",
+            name
+        )
+        .yellow()
     );
     println!("{}", "Run `cargo deps --reset` to start over.".yellow());
 }

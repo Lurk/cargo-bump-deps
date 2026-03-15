@@ -38,9 +38,6 @@ cargo bump-deps --reset
 # Exclude specific dependencies (repeatable)
 cargo bump-deps --exclude serde --exclude tokio
 
-# Skip a stuck package and continue with the rest
-cargo bump-deps --skip regex
-
 # Control parallel cargo search jobs during discovery (defaults to min(num_cpus, 8))
 cargo bump-deps --jobs 4
 
@@ -56,7 +53,7 @@ cargo bump-deps --no-clippy --no-fmt
    - Runs `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check`
    - If all pass: commits with message `Upgrade <name> <old> -> <new>`
    - If any fail: saves state to `cargo-bump-deps-state.json` and exits
-3. To resume after fixing a failure, run `cargo bump-deps` again
+3. To resume after fixing a failure, run `cargo bump-deps` again. Use `--reset --exclude <name>` to restart without a problematic package
 
 ## State file
 

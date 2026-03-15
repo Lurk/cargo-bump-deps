@@ -53,16 +53,6 @@ impl State {
             .position(|p| p.status == PackageStatus::Failed || p.status == PackageStatus::Pending)
             .unwrap_or(self.packages.len())
     }
-
-    pub fn skip_package(&mut self, name: &str) -> bool {
-        for pkg in &mut self.packages {
-            if pkg.name == name && pkg.status != PackageStatus::Done {
-                pkg.status = PackageStatus::Skipped;
-                return true;
-            }
-        }
-        false
-    }
 }
 
 pub fn load_state() -> Result<Option<State>> {
@@ -162,35 +152,6 @@ mod tests {
             ],
         };
         assert_eq!(state.resume_index(), 2);
-    }
-
-    #[test]
-    fn test_skip_package() {
-        let mut state = State {
-            packages: vec![
-                make_entry("a", PackageStatus::Done),
-                make_entry("b", PackageStatus::Failed),
-                make_entry("c", PackageStatus::Pending),
-            ],
-        };
-        assert!(state.skip_package("b"));
-        assert_eq!(state.packages[1].status, PackageStatus::Skipped);
-    }
-
-    #[test]
-    fn test_skip_package_not_found() {
-        let mut state = State {
-            packages: vec![make_entry("a", PackageStatus::Pending)],
-        };
-        assert!(!state.skip_package("nonexistent"));
-    }
-
-    #[test]
-    fn test_skip_package_already_done() {
-        let mut state = State {
-            packages: vec![make_entry("a", PackageStatus::Done)],
-        };
-        assert!(!state.skip_package("a"));
     }
 
     #[test]

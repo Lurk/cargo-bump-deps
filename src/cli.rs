@@ -25,11 +25,6 @@ pub struct DepsArgs {
     #[arg(long, value_name = "NAME")]
     pub exclude: Vec<String>,
 
-    // TODO: remove this bacause it is covered by `exclude`
-    /// Skip a stuck package and continue with the rest
-    #[arg(long, value_name = "NAME")]
-    pub skip: Option<String>,
-
     /// Number of parallel cargo search jobs during discovery
     #[arg(long, default_value_t = default_jobs(), value_name = "N")]
     pub jobs: usize,
