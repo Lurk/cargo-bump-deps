@@ -181,13 +181,12 @@ pub fn run(
         let old_version = pkg.old_version.clone();
         let new_version = pkg.new_version.clone();
 
-        println!("\n{}", "Running cargo add...".dimmed());
-        if !runner::cargo_add_package(&name, &new_version)? {
-            println!("{}", "FAIL: cargo add".red().bold());
-            state.packages[i].status = PackageStatus::Failed;
+        println!("\n{}", "Updating dependency version...".dimmed());
+        if !runner::update_dependency_in_workspace(&name, &new_version)? {
+            println!("{}", format!("SKIP: {} not found in any Cargo.toml", name).yellow());
+            state.packages[i].status = PackageStatus::Skipped;
             state::save_state(&state)?;
-            print_resume_instructions(&name);
-            bail!("cargo add failed for {}", name);
+            continue;
         }
 
         // cargo check

@@ -7,13 +7,6 @@ pub struct OutdatedPackage {
     pub new_version: Version,
 }
 
-pub fn parse_cargo_search_output(output: &str) -> Option<String> {
-    let line = output.lines().next()?;
-    let (_, rest) = line.split_once(" = \"")?;
-    let (version, _) = rest.split_once('"')?;
-    Some(version.to_string())
-}
-
 pub fn version_from_req(req: &str) -> String {
     if let Ok(version_req) = semver::VersionReq::parse(req)
         && let Some(comp) = version_req.comparators.first()
@@ -45,40 +38,6 @@ pub fn version_from_req(req: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_parse_cargo_search_output() {
-        let output = r#"serde = "1.0.210" # A generic serialization/deserialization framework"#;
-        assert_eq!(
-            parse_cargo_search_output(output),
-            Some("1.0.210".to_string())
-        );
-    }
-
-    #[test]
-    fn test_parse_cargo_search_output_empty() {
-        assert_eq!(parse_cargo_search_output(""), None);
-    }
-
-    #[test]
-    fn test_parse_cargo_search_output_no_quotes() {
-        assert_eq!(parse_cargo_search_output("no version here"), None);
-    }
-
-    #[test]
-    fn test_parse_cargo_search_output_no_equals_quote() {
-        // Has quotes but not in the expected format
-        assert_eq!(parse_cargo_search_output(r#"foo "1.0.0""#), None);
-    }
-
-    #[test]
-    fn test_parse_cargo_search_output_multiline() {
-        let output = "serde = \"1.0.210\" # description\nserde_derive = \"1.0.210\"";
-        assert_eq!(
-            parse_cargo_search_output(output),
-            Some("1.0.210".to_string())
-        );
-    }
 
     #[test]
     fn test_version_from_req_caret() {
