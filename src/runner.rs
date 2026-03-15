@@ -168,7 +168,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let manifest = dir.path().join("Cargo.toml");
         let mut f = fs::File::create(&manifest).unwrap();
-        writeln!(f, "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[dependencies]\nserde = \"1.0.0\"").unwrap();
+        writeln!(
+            f,
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[dependencies]\nserde = \"1.0.0\""
+        )
+        .unwrap();
 
         let updated = update_dependency_version(&manifest, "serde", "2.0.0").unwrap();
         assert!(updated);
@@ -197,7 +201,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let manifest = dir.path().join("Cargo.toml");
         let mut f = fs::File::create(&manifest).unwrap();
-        writeln!(f, "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[dependencies]\nserde = \"1.0.0\"").unwrap();
+        writeln!(
+            f,
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[dependencies]\nserde = \"1.0.0\""
+        )
+        .unwrap();
 
         let updated = update_dependency_version(&manifest, "tokio", "2.0.0").unwrap();
         assert!(!updated);
@@ -208,7 +216,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let manifest = dir.path().join("Cargo.toml");
         let mut f = fs::File::create(&manifest).unwrap();
-        writeln!(f, "[workspace]\nmembers = [\"a\"]\n\n[workspace.dependencies]\nserde = \"1.0.0\"").unwrap();
+        writeln!(
+            f,
+            "[workspace]\nmembers = [\"a\"]\n\n[workspace.dependencies]\nserde = \"1.0.0\""
+        )
+        .unwrap();
 
         let updated = update_dependency_version(&manifest, "serde", "2.0.0").unwrap();
         assert!(updated);

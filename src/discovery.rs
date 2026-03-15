@@ -28,11 +28,9 @@ pub fn find_outdated_packages(
     let mut warnings = Vec::new();
     let mut progress = 0;
 
-    let client = crates_io_api::SyncClient::new(
-        "cargo-bump-deps",
-        std::time::Duration::from_millis(100),
-    )
-    .context("Failed to create crates.io API client")?;
+    let client =
+        crates_io_api::SyncClient::new("cargo-bump-deps", std::time::Duration::from_millis(100))
+            .context("Failed to create crates.io API client")?;
 
     for chunk in workspace_deps.chunks(concurrency) {
         let chunk_results: Vec<_> = std::thread::scope(|s| {
@@ -46,10 +44,7 @@ pub fn find_outdated_packages(
                 })
                 .collect();
 
-            handles
-                .into_iter()
-                .map(|h| h.join().unwrap())
-                .collect()
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
         });
 
         for result in chunk_results {
@@ -67,10 +62,7 @@ pub fn find_outdated_packages(
 
     // Print warning summary
     if !warnings.is_empty() {
-        eprintln!(
-            "\n{} package(s) skipped during discovery:",
-            warnings.len()
-        );
+        eprintln!("\n{} package(s) skipped during discovery:", warnings.len());
         for w in &warnings {
             eprintln!("  - {}", w);
         }
@@ -99,10 +91,18 @@ fn search_dep(
     let latest_str = &crate_response.crate_data.max_version;
 
     let current_version_str = parser::version_from_req(req);
-    let current_version = Version::parse(&current_version_str)
-        .map_err(|e| format!("{}: failed to parse current version '{}': {}", name, current_version_str, e))?;
-    let latest_version = Version::parse(latest_str)
-        .map_err(|e| format!("{}: failed to parse latest version '{}': {}", name, latest_str, e))?;
+    let current_version = Version::parse(&current_version_str).map_err(|e| {
+        format!(
+            "{}: failed to parse current version '{}': {}",
+            name, current_version_str, e
+        )
+    })?;
+    let latest_version = Version::parse(latest_str).map_err(|e| {
+        format!(
+            "{}: failed to parse latest version '{}': {}",
+            name, latest_str, e
+        )
+    })?;
 
     // Strip build metadata for comparison (semver spec says it has no precedence)
     let mut current_cmp = current_version.clone();

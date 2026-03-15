@@ -63,7 +63,6 @@ impl State {
         }
         false
     }
-
 }
 
 pub fn load_state() -> Result<Option<State>> {

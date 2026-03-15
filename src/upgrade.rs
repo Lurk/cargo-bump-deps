@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use colored::Colorize;
 use std::time::Instant;
 
@@ -30,7 +30,9 @@ pub fn run(
 
     // Verify clean working tree (skip for dry-run)
     if !dry_run && !runner::check_git_clean() {
-        bail!("Working tree is not clean. Commit or stash your changes before running cargo-bump-deps.");
+        bail!(
+            "Working tree is not clean. Commit or stash your changes before running cargo-bump-deps."
+        );
     }
 
     // Pre-flight checks (skip for dry-run)
@@ -41,36 +43,56 @@ pub fn run(
             let t = Instant::now();
             println!("\n{}", "Running cargo check...".dimmed());
             if !runner::cargo_check()? {
-                bail!("Pre-flight failed: cargo check. Fix the issues before running cargo-bump-deps.");
+                bail!(
+                    "Pre-flight failed: cargo check. Fix the issues before running cargo-bump-deps."
+                );
             }
-            println!("{}", format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green());
+            println!(
+                "{}",
+                format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green()
+            );
         }
 
         if !no_test {
             let t = Instant::now();
             println!("\n{}", "Running cargo test...".dimmed());
             if !runner::cargo_test()? {
-                bail!("Pre-flight failed: cargo test. Fix the issues before running cargo-bump-deps.");
+                bail!(
+                    "Pre-flight failed: cargo test. Fix the issues before running cargo-bump-deps."
+                );
             }
-            println!("{}", format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green());
+            println!(
+                "{}",
+                format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green()
+            );
         }
 
         if !no_clippy {
             let t = Instant::now();
             println!("\n{}", "Running cargo clippy...".dimmed());
             if !runner::cargo_clippy()? {
-                bail!("Pre-flight failed: cargo clippy. Fix the issues before running cargo-bump-deps.");
+                bail!(
+                    "Pre-flight failed: cargo clippy. Fix the issues before running cargo-bump-deps."
+                );
             }
-            println!("{}", format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green());
+            println!(
+                "{}",
+                format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green()
+            );
         }
 
         if !no_fmt {
             let t = Instant::now();
             println!("\n{}", "Running cargo fmt --check...".dimmed());
             if !runner::cargo_fmt()? {
-                bail!("Pre-flight failed: cargo fmt. Fix the issues before running cargo-bump-deps.");
+                bail!(
+                    "Pre-flight failed: cargo fmt. Fix the issues before running cargo-bump-deps."
+                );
             }
-            println!("{}", format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green());
+            println!(
+                "{}",
+                format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green()
+            );
         }
 
         println!("{}", "\nPre-flight checks passed!".green().bold());
@@ -92,10 +114,7 @@ pub fn run(
         if let Some(mut existing) = state::load_state()? {
             if existing.skip_package(skip_name) {
                 state::save_state(&existing)?;
-                println!(
-                    "{}",
-                    format!("Skipped package: {}", skip_name).yellow()
-                );
+                println!("{}", format!("Skipped package: {}", skip_name).yellow());
             } else {
                 println!(
                     "{}",
@@ -202,7 +221,10 @@ pub fn run(
 
         println!("\n{}", "Updating dependency version...".dimmed());
         if !runner::update_dependency_in_workspace(&name, &new_version)? {
-            println!("{}", format!("SKIP: {} not found in any Cargo.toml", name).yellow());
+            println!(
+                "{}",
+                format!("SKIP: {} not found in any Cargo.toml", name).yellow()
+            );
             state.packages[i].status = PackageStatus::Skipped;
             state::save_state(&state)?;
             continue;
@@ -219,7 +241,10 @@ pub fn run(
                 print_resume_instructions(&name);
                 bail!("cargo check failed for {}", name);
             }
-            println!("{}", format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green());
+            println!(
+                "{}",
+                format!("PASS: cargo check ({:.1}s)", t.elapsed().as_secs_f64()).green()
+            );
         }
 
         // cargo test
@@ -233,7 +258,10 @@ pub fn run(
                 print_resume_instructions(&name);
                 bail!("cargo test failed for {}", name);
             }
-            println!("{}", format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green());
+            println!(
+                "{}",
+                format!("PASS: cargo test ({:.1}s)", t.elapsed().as_secs_f64()).green()
+            );
         }
 
         // cargo clippy
@@ -247,7 +275,10 @@ pub fn run(
                 print_resume_instructions(&name);
                 bail!("cargo clippy failed for {}", name);
             }
-            println!("{}", format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green());
+            println!(
+                "{}",
+                format!("PASS: cargo clippy ({:.1}s)", t.elapsed().as_secs_f64()).green()
+            );
         }
 
         // cargo fmt
@@ -261,14 +292,20 @@ pub fn run(
                 print_resume_instructions(&name);
                 bail!("cargo fmt failed for {}", name);
             }
-            println!("{}", format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green());
+            println!(
+                "{}",
+                format!("PASS: cargo fmt ({:.1}s)", t.elapsed().as_secs_f64()).green()
+            );
         }
 
         // All passed — commit
         let commit_msg = format!("Upgrade {} {} -> {}", name, old_version, new_version);
         let committed = runner::git_add_and_commit(&commit_msg)?;
         if !committed {
-            println!("{}", format!("SKIP: no changes to commit for {}", name).yellow());
+            println!(
+                "{}",
+                format!("SKIP: no changes to commit for {}", name).yellow()
+            );
             state.packages[i].status = PackageStatus::Skipped;
             state::save_state(&state)?;
             continue;
@@ -282,15 +319,25 @@ pub fn run(
     // All done
     state::delete_state()?;
 
-    let done = state.packages.iter().filter(|p| p.status == PackageStatus::Done).count();
-    let skipped = state.packages.iter().filter(|p| p.status == PackageStatus::Skipped).count();
+    let done = state
+        .packages
+        .iter()
+        .filter(|p| p.status == PackageStatus::Done)
+        .count();
+    let skipped = state
+        .packages
+        .iter()
+        .filter(|p| p.status == PackageStatus::Skipped)
+        .count();
     let elapsed = run_start.elapsed();
 
     println!(
         "\n{}",
         format!(
             "Done! {} upgraded, {} skipped in {:.1}s",
-            done, skipped, elapsed.as_secs_f64()
+            done,
+            skipped,
+            elapsed.as_secs_f64()
         )
         .green()
         .bold()
@@ -308,8 +355,5 @@ fn print_resume_instructions(name: &str) {
         "{}",
         format!("Run `cargo deps --skip {}` to skip this package.", name).yellow()
     );
-    println!(
-        "{}",
-        "Run `cargo deps --reset` to start over.".yellow()
-    );
+    println!("{}", "Run `cargo deps --reset` to start over.".yellow());
 }
