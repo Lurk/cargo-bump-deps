@@ -5,7 +5,6 @@ use std::time::Instant;
 use crate::cli::DepsArgs;
 use crate::discovery;
 use crate::runner;
-use crate::state::{self, PackageStatus, State};
 
 struct CheckStep {
     name: &'static str,
@@ -86,52 +85,25 @@ pub fn run(args: DepsArgs) -> Result<()> {
         println!("{}", "\nPre-flight checks passed!".green().bold());
     }
 
-    // Handle --reset
-    if args.reset {
-        state::delete_state()?;
-        println!("{}", "State file deleted.".green());
-        if args.dry_run {
-            // Continue to show dry-run output
-        } else {
-            return Ok(());
-        }
+    // Discover outdated packages
+    println!("Checking for outdated dependencies...");
+    let packages = discovery::find_outdated_packages(
+        args.compatible_only,
+        args.pre,
+        &args.exclude,
+        args.jobs,
+    )?;
+
+    if packages.is_empty() {
+        println!("{}", "All dependencies are up to date!".green());
+        return Ok(());
     }
-
-    // Load or create state
-    let mut state = if let Some(existing) = state::load_state()? {
-        let resume_idx = existing.resume_index();
-        let total = existing.packages.len();
-        if resume_idx < total {
-            println!(
-                "{}",
-                format!(
-                    "Resuming from package {}/{} ({})",
-                    resume_idx + 1,
-                    total,
-                    existing.packages[resume_idx].name
-                )
-                .yellow()
-            );
-        }
-        existing
-    } else {
-        // Discover outdated packages
-        println!("Checking for outdated dependencies...");
-        let packages =
-            discovery::find_outdated_packages(args.compatible_only, &args.exclude, args.jobs)?;
-
-        if packages.is_empty() {
-            println!("{}", "All dependencies are up to date!".green());
-            return Ok(());
-        }
-        State::from_packages(packages)
-    };
 
     // Handle --dry-run
     if args.dry_run {
         println!(
             "\n{}",
-            format!("Found {} outdated packages:", state.packages.len()).bold()
+            format!("Found {} outdated packages:", packages.len()).bold()
         );
         println!(
             "  {:<30} {:<15} {}",
@@ -140,37 +112,24 @@ pub fn run(args: DepsArgs) -> Result<()> {
             "New".bold()
         );
         println!("  {}", "-".repeat(65));
-        for pkg in &state.packages {
-            let status = match pkg.status {
-                PackageStatus::Done => " (done)".green().to_string(),
-                PackageStatus::Failed => " (failed)".red().to_string(),
-                PackageStatus::Skipped => " (skipped)".yellow().to_string(),
-                PackageStatus::Pending => String::new(),
-            };
+        for pkg in &packages {
             println!(
-                "  {:<30} {:<15} {}{}",
-                pkg.name, pkg.old_version, pkg.new_version, status
+                "  {:<30} {:<15} {}",
+                pkg.name, pkg.old_version, pkg.new_version
             );
         }
         return Ok(());
     }
 
+    let continue_on_failure = args.continue_on_failure || args.no_revert_on_failure;
+    let manifest_paths = runner::workspace_manifest_paths()?;
     let run_start = Instant::now();
-    let total = state.packages.len();
-    let start = state.resume_index();
+    let total = packages.len();
+    let mut done = 0usize;
+    let mut skipped = 0usize;
+    let mut failed: Vec<(&str, &str)> = Vec::new();
 
-    if start >= total {
-        println!("{}", "All packages already upgraded!".green());
-        state::delete_state()?;
-        return Ok(());
-    }
-
-    for i in start..total {
-        if state.packages[i].status == PackageStatus::Skipped {
-            continue;
-        }
-
-        let pkg = &state.packages[i];
+    for (i, pkg) in packages.iter().enumerate() {
         println!(
             "\n{}",
             format!(
@@ -185,81 +144,81 @@ pub fn run(args: DepsArgs) -> Result<()> {
             .cyan()
         );
 
-        let name = pkg.name.clone();
-        let old_version = pkg.old_version.clone();
-        let new_version = pkg.new_version.clone();
-
         println!("\n{}", "Updating dependency version...".dimmed());
-        if !runner::update_dependency_in_workspace(&name, &new_version)? {
+        if !runner::update_dependency_in_workspace(
+            &manifest_paths,
+            &pkg.name,
+            &pkg.new_version.to_string(),
+        )? {
             println!(
                 "{}",
-                format!("SKIP: {} not found in any Cargo.toml", name).yellow()
+                format!("SKIP: {} not found in any Cargo.toml", pkg.name).yellow()
             );
-            state.packages[i].status = PackageStatus::Skipped;
-            state::save_state(&state)?;
+            skipped += 1;
             continue;
         }
 
         // Run all check steps
         let check_failed = steps
             .iter()
-            .find_map(|step| match run_check_step(step, &name) {
+            .find_map(|step| match run_check_step(step, &pkg.name) {
                 Ok(()) => None,
                 Err(e) => Some((step.name, e)),
             });
 
         if let Some((step_name, _err)) = check_failed {
             println!("{}", format!("FAIL: {}", step_name).red().bold());
-            state.packages[i].status = PackageStatus::Failed;
-            state::save_state(&state)?;
 
             if !args.no_revert_on_failure {
                 println!("{}", "Reverting changes...".dimmed());
                 runner::git_restore()?;
             }
 
-            print_resume_instructions(&name);
-            bail!("{} failed for {}", step_name, name);
+            if continue_on_failure {
+                failed.push((&pkg.name, step_name));
+                continue;
+            }
+
+            bail!(
+                "{} failed for {}. Fix the issue and re-run to continue with remaining packages.",
+                step_name,
+                pkg.name
+            );
         }
 
         // All passed — commit
-        let commit_msg = format!("Upgrade {} {} -> {}", name, old_version, new_version);
+        let commit_msg = format!(
+            "Upgrade {} {} -> {}",
+            pkg.name, pkg.old_version, pkg.new_version
+        );
         let committed = runner::git_add_and_commit(&commit_msg)?;
         if !committed {
             println!(
                 "{}",
-                format!("SKIP: no changes to commit for {}", name).yellow()
+                format!("SKIP: no changes to commit for {}", pkg.name).yellow()
             );
-            state.packages[i].status = PackageStatus::Skipped;
-            state::save_state(&state)?;
+            skipped += 1;
             continue;
         }
         println!("{}", format!("Committed: {}", commit_msg).green());
-
-        state.packages[i].status = PackageStatus::Done;
-        state::save_state(&state)?;
+        done += 1;
     }
 
-    // All done
-    state::delete_state()?;
-
-    let done = state
-        .packages
-        .iter()
-        .filter(|p| p.status == PackageStatus::Done)
-        .count();
-    let skipped = state
-        .packages
-        .iter()
-        .filter(|p| p.status == PackageStatus::Skipped)
-        .count();
     let elapsed = run_start.elapsed();
+
+    if !failed.is_empty() {
+        println!("\n{}", format!("Failed ({}):", failed.len()).red().bold());
+        for (name, step) in &failed {
+            println!("  {} ({})", name, step);
+        }
+    }
 
     println!(
         "\n{}",
         format!(
-            "Done! {} upgraded, {} skipped in {:.1}s",
+            "Done! {} upgraded, {} failed, {} skipped in {:.1}s",
             done,
+            failed.len(),
             skipped,
             elapsed.as_secs_f64()
         )
@@ -267,24 +226,12 @@ pub fn run(args: DepsArgs) -> Result<()> {
         .bold()
     );
 
-    Ok(())
-}
+    if !failed.is_empty() {
+        bail!(
+            "{} package(s) failed to upgrade. Fix the issues and re-run.",
+            failed.len()
+        );
+    }
 
-fn print_resume_instructions(name: &str) {
-    println!(
-        "\n{}",
-        "Fix the issue, then run `cargo bump-deps` to resume.".yellow()
-    );
-    println!(
-        "{}",
-        format!(
-            "Run `cargo bump-deps --reset --exclude {}` to restart without this package.",
-            name
-        )
-        .yellow()
-    );
-    println!(
-        "{}",
-        "Run `cargo bump-deps --reset` to start over.".yellow()
-    );
+    Ok(())
 }

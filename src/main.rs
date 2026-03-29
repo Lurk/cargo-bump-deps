@@ -2,7 +2,6 @@ mod cli;
 mod discovery;
 mod parser;
 mod runner;
-mod state;
 mod upgrade;
 
 use clap::Parser;

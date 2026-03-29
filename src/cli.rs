@@ -9,10 +9,6 @@ pub enum Cli {
 
 #[derive(Parser)]
 pub struct DepsArgs {
-    /// Delete state file and start fresh
-    #[arg(long)]
-    pub reset: bool,
-
     /// Show what would be upgraded without changing anything
     #[arg(long)]
     pub dry_run: bool,
@@ -45,9 +41,17 @@ pub struct DepsArgs {
     #[arg(long)]
     pub no_fmt: bool,
 
+    /// Include prerelease versions in upgrade candidates
+    #[arg(long)]
+    pub pre: bool,
+
+    /// Skip failed dependencies and continue upgrading the rest
+    #[arg(long)]
+    pub continue_on_failure: bool,
+
     /// Keep failed dependency changes in the working tree instead of reverting.
-    /// WARNING: leaves uncommitted changes that block resume — you must manually
-    /// commit or revert before running again.
+    /// WARNING: leaves uncommitted changes that block the next upgrade — you must
+    /// manually commit or revert before running again. Implies --continue-on-failure.
     #[arg(long)]
     pub no_revert_on_failure: bool,
 }

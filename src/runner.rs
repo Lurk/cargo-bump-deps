@@ -14,13 +14,13 @@ pub fn run_command_inherit(program: &str, args: &[&str]) -> Result<bool> {
     Ok(status.success())
 }
 
-pub fn update_dependency_in_workspace(name: &str, version: &str) -> Result<bool> {
+pub fn workspace_manifest_paths() -> Result<Vec<std::path::PathBuf>> {
     let metadata = cargo_metadata::MetadataCommand::new()
         .no_deps()
         .exec()
         .context("Failed to run cargo metadata")?;
 
-    let mut manifest_paths: Vec<_> = metadata
+    let mut paths: Vec<_> = metadata
         .packages
         .iter()
         .filter(|pkg| metadata.workspace_members.contains(&pkg.id))
@@ -29,12 +29,20 @@ pub fn update_dependency_in_workspace(name: &str, version: &str) -> Result<bool>
 
     // Also include workspace root Cargo.toml for [workspace.dependencies]
     let root_manifest = metadata.workspace_root.as_std_path().join("Cargo.toml");
-    if !manifest_paths.iter().any(|p| p == &root_manifest) {
-        manifest_paths.push(root_manifest);
+    if !paths.iter().any(|p| p == &root_manifest) {
+        paths.push(root_manifest);
     }
 
+    Ok(paths)
+}
+
+pub fn update_dependency_in_workspace(
+    manifest_paths: &[std::path::PathBuf],
+    name: &str,
+    version: &str,
+) -> Result<bool> {
     let mut updated = false;
-    for manifest_path in &manifest_paths {
+    for manifest_path in manifest_paths {
         if update_dependency_version(manifest_path, name, version)? {
             updated = true;
         }
@@ -180,7 +188,7 @@ pub fn git_add_and_commit(message: &str) -> Result<bool> {
 }
 
 pub fn git_restore() -> Result<bool> {
-    run_command_inherit("git", &["checkout", "--", "."])
+    run_command_inherit("git", &["checkout", "--", "**/Cargo.toml", "Cargo.lock"])
 }
 
 pub fn check_git_repo() -> bool {

@@ -1,6 +1,6 @@
 # cargo-bump-deps
 
-A Cargo subcommand that upgrades dependencies one at a time, verifying each upgrade passes `cargo check`, `cargo test`, `cargo clippy`, and `cargo fmt --check` before committing. If an upgrade fails, it saves state so you can fix the issue and resume where you left off.
+A Cargo subcommand that upgrades dependencies one at a time, verifying each upgrade passes `cargo check`, `cargo test`, `cargo clippy`, and `cargo fmt --check` before committing. If an upgrade fails, it reverts the change and stops (or continues with `--continue-on-failure`). Since each upgrade is committed individually, re-running picks up where you left off.
 
 ## Why
 
@@ -17,7 +17,7 @@ If Renovate or Dependabot feel like overkill for your project, this is the simpl
 ## Installation
 
 ```sh
-cargo install --path .
+cargo install --git https://github.com/Lurk/cargo-bump-deps.git
 ```
 
 ## Usage
@@ -32,8 +32,8 @@ cargo bump-deps
 # Only upgrade semver-compatible versions
 cargo bump-deps --compatible-only
 
-# Clear saved state and start fresh
-cargo bump-deps --reset
+# Include prerelease versions
+cargo bump-deps --pre
 
 # Exclude specific dependencies (repeatable)
 cargo bump-deps --exclude serde --exclude tokio
@@ -43,6 +43,9 @@ cargo bump-deps --jobs 4
 
 # Skip specific checks
 cargo bump-deps --no-clippy --no-fmt
+
+# Skip failed dependencies and continue upgrading the rest
+cargo bump-deps --continue-on-failure
 
 # Keep failed changes in working tree instead of reverting
 cargo bump-deps --no-revert-on-failure
@@ -55,8 +58,8 @@ cargo bump-deps --no-revert-on-failure
    - Updates the version in `Cargo.toml` directly (supports string, inline table, and table formats across workspace root and members)
    - Runs `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check`
    - If all pass: stages only `Cargo.toml` and `Cargo.lock` files and commits with message `Upgrade <name> <old> -> <new>`
-   - If any fail: reverts changes (`git checkout -- .`), saves state, and exits
-3. To resume after fixing a failure, run `cargo bump-deps` again. Use `--reset --exclude <name>` to restart without a problematic package
+   - If any fail: reverts `Cargo.toml` and `Cargo.lock` changes and exits (or continues to the next package with `--continue-on-failure`)
+3. Since each successful upgrade is committed immediately, re-running after a failure automatically skips already-upgraded dependencies
 
 ## Flags
 
@@ -64,15 +67,12 @@ cargo bump-deps --no-revert-on-failure
 |------|-------------|
 | `--dry-run` | Show what would be upgraded without changing anything |
 | `--compatible-only` | Only upgrade semver-compatible versions |
-| `--reset` | Delete state file and start fresh |
+| `--pre` | Include prerelease versions in upgrade candidates |
 | `--exclude <NAME>` | Exclude specific dependencies from upgrade (repeatable) |
 | `--jobs <N>` | Number of parallel crates.io lookup jobs during discovery (default: min(num_cpus, 8)) |
 | `--no-check` | Disable `cargo check` |
 | `--no-test` | Disable `cargo test` |
 | `--no-clippy` | Disable `cargo clippy` |
 | `--no-fmt` | Disable `cargo fmt --check` |
-| `--no-revert-on-failure` | Keep failed dependency changes in the working tree instead of reverting. Leaves uncommitted changes that block resume — you must manually commit or revert before running again |
-
-## State file
-
-On failure, a `cargo-bump-deps-state.json` file is created in the `target/` directory tracking which packages are done, failed, or pending. Running `cargo bump-deps` again resumes from the first failed/pending package. Use `cargo bump-deps --reset` to delete this file and start over.
+| `--continue-on-failure` | Skip failed dependencies and continue upgrading the rest |
+| `--no-revert-on-failure` | Keep failed dependency changes in the working tree instead of reverting. Implies `--continue-on-failure` |

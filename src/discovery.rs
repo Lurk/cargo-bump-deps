@@ -5,6 +5,7 @@ use crate::parser::{self, OutdatedPackage};
 
 pub fn find_outdated_packages(
     compatible_only: bool,
+    pre: bool,
     exclude: &[String],
     jobs: usize,
 ) -> Result<Vec<OutdatedPackage>> {
@@ -35,19 +36,26 @@ pub fn find_outdated_packages(
             .context("Failed to create crates.io API client")?;
 
     for chunk in workspace_deps.chunks(concurrency) {
-        let chunk_results: Vec<_> = std::thread::scope(|s| {
+        let chunk_results = std::thread::scope(|s| {
             let handles: Vec<_> = chunk
                 .iter()
                 .map(|dep| {
                     let name = dep.name.clone();
                     let req = dep.req.to_string();
                     let client = &client;
-                    s.spawn(move || search_dep(client, &name, &req, compatible_only))
+                    s.spawn(move || search_dep(client, &name, &req, compatible_only, pre))
                 })
                 .collect();
 
-            handles.into_iter().map(|h| h.join().unwrap()).collect()
-        });
+            handles
+                .into_iter()
+                .map(|h| {
+                    h.join().map_err(|_| {
+                        anyhow::anyhow!("Worker thread panicked during crates.io lookup")
+                    })
+                })
+                .collect::<Result<Vec<_>>>()
+        })?;
 
         for result in chunk_results {
             progress += 1;
@@ -85,6 +93,7 @@ fn search_dep(
     name: &str,
     req: &str,
     compatible_only: bool,
+    pre: bool,
 ) -> std::result::Result<Option<OutdatedPackage>, String> {
     let crate_response = client
         .get_crate(name)
@@ -105,6 +114,11 @@ fn search_dep(
             name, latest_str, e
         )
     })?;
+
+    // Skip prerelease versions unless --pre is set
+    if !pre && !latest_version.pre.is_empty() {
+        return Ok(None);
+    }
 
     // Strip build metadata for comparison (semver spec says it has no precedence)
     let mut current_cmp = current_version.clone();
@@ -135,6 +149,44 @@ fn search_dep(
 mod tests {
     use super::*;
 
+    /// Simulate the core comparison logic of search_dep without needing a crates.io client.
+    fn search_dep_result(
+        current_str: &str,
+        latest_str: &str,
+        compatible_only: bool,
+        pre: bool,
+    ) -> Option<OutdatedPackage> {
+        let current_version = Version::parse(current_str).unwrap();
+        let latest_version = Version::parse(latest_str).unwrap();
+
+        if !pre && !latest_version.pre.is_empty() {
+            return None;
+        }
+
+        let mut current_cmp = current_version.clone();
+        current_cmp.build = semver::BuildMetadata::EMPTY;
+        let mut latest_cmp = latest_version.clone();
+        latest_cmp.build = semver::BuildMetadata::EMPTY;
+
+        if latest_cmp <= current_cmp {
+            return None;
+        }
+
+        if compatible_only {
+            let req = format!("^{}", current_str);
+            let version_req = VersionReq::parse(&req).unwrap();
+            if !version_req.matches(&latest_version) {
+                return None;
+            }
+        }
+
+        Some(OutdatedPackage {
+            name: "test".to_string(),
+            old_version: current_version,
+            new_version: latest_version,
+        })
+    }
+
     #[test]
     fn build_metadata_only_difference_is_not_an_upgrade() {
         let current = Version::parse("1.0.6").unwrap();
@@ -150,6 +202,33 @@ mod tests {
         latest_cmp.build = semver::BuildMetadata::EMPTY;
 
         assert!(latest_cmp <= current_cmp);
+    }
+
+    #[test]
+    fn prerelease_skipped_by_default() {
+        let result = search_dep_result("0.9.0", "1.0.0-rc.1", false, false);
+        assert!(
+            result.is_none(),
+            "prerelease should be skipped when pre=false"
+        );
+    }
+
+    #[test]
+    fn prerelease_included_when_flag_set() {
+        let result = search_dep_result("0.9.0", "1.0.0-rc.1", false, true);
+        assert!(
+            result.is_some(),
+            "prerelease should be included when pre=true"
+        );
+    }
+
+    #[test]
+    fn stable_upgrade_still_works_when_pre_disabled() {
+        let result = search_dep_result("1.0.0", "1.1.0", false, false);
+        assert!(
+            result.is_some(),
+            "stable upgrade should work when pre=false"
+        );
     }
 
     #[test]

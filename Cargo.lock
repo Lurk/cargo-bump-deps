@@ -113,8 +113,6 @@ dependencies = [
  "colored",
  "crates_io_api",
  "semver",
- "serde",
- "serde_json",
  "tempfile",
  "toml_edit",
 ]
