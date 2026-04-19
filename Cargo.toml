@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 repository = "https://github.com/Lurk/cargo-bump-deps.git"
 
+[lib]
+name = "cargo_bump_deps"
+path = "src/lib.rs"
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 anyhow = "1.0.102"

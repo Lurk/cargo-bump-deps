@@ -1,11 +1,6 @@
-mod cli;
-mod discovery;
-mod parser;
-mod runner;
-mod upgrade;
-
+use cargo_bump_deps::cli::Cli;
+use cargo_bump_deps::upgrade;
 use clap::Parser;
-use cli::Cli;
 
 fn main() {
     let Cli::BumpDeps(args) = Cli::parse();

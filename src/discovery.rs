@@ -3,6 +3,19 @@ use semver::{Version, VersionReq};
 
 use crate::parser::{self, OutdatedPackage};
 
+/// Return the set of names that appear more than once, in the order first duplicated.
+#[cfg(test)]
+fn find_duplicates(names: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut duplicates: Vec<String> = Vec::new();
+    for name in names {
+        if !seen.insert(name.clone()) && !duplicates.contains(&name) {
+            duplicates.push(name);
+        }
+    }
+    duplicates
+}
+
 pub fn find_outdated_packages(
     compatible_only: bool,
     pre: bool,
@@ -15,6 +28,7 @@ pub fn find_outdated_packages(
         .context("Failed to run cargo metadata")?;
 
     let mut seen = std::collections::HashSet::new();
+    let mut duplicate_names: Vec<String> = Vec::new();
     let workspace_deps: Vec<_> = metadata
         .packages
         .iter()
@@ -22,8 +36,28 @@ pub fn find_outdated_packages(
         .flat_map(|pkg| &pkg.dependencies)
         .filter(|dep| dep.path.is_none())
         .filter(|dep| !exclude.iter().any(|e| e == &dep.name))
-        .filter(|dep| seen.insert(dep.name.clone()))
+        .filter(|dep| {
+            if seen.insert(dep.name.clone()) {
+                true
+            } else {
+                if !duplicate_names.contains(&dep.name) {
+                    duplicate_names.push(dep.name.clone());
+                }
+                false
+            }
+        })
         .collect();
+
+    if !duplicate_names.is_empty() {
+        eprintln!(
+            "\n{} duplicate dependency name(s) across workspace members — using first occurrence:",
+            duplicate_names.len()
+        );
+        for name in &duplicate_names {
+            eprintln!("  - {}", name);
+        }
+        eprintln!();
+    }
 
     let total = workspace_deps.len();
     let concurrency = jobs.max(1);
@@ -240,6 +274,23 @@ mod tests {
         latest_cmp.build = semver::BuildMetadata::EMPTY;
 
         assert!(latest_cmp > current_cmp);
+    }
+
+    #[test]
+    fn find_duplicates_returns_names_seen_more_than_once() {
+        let names = ["serde", "anyhow", "serde", "anyhow", "tokio"]
+            .into_iter()
+            .map(String::from);
+        assert_eq!(
+            find_duplicates(names),
+            vec!["serde".to_string(), "anyhow".to_string()]
+        );
+    }
+
+    #[test]
+    fn find_duplicates_is_empty_when_all_unique() {
+        let names = ["a", "b", "c"].into_iter().map(String::from);
+        assert!(find_duplicates(names).is_empty());
     }
 
     #[test]

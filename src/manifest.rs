@@ -1,53 +1,52 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::path::{Path, PathBuf};
 
-pub fn run_command_inherit(program: &str, args: &[&str]) -> Result<bool> {
-    let status = Command::new(program)
-        .args(args)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .with_context(|| format!("Failed to execute: {} {}", program, args.join(" ")))?;
-
-    Ok(status.success())
+pub struct Workspace {
+    pub manifest_paths: Vec<PathBuf>,
+    pub root: PathBuf,
 }
 
-pub fn workspace_manifest_paths() -> Result<Vec<std::path::PathBuf>> {
+/// Enumerate all manifests that should be edited during an upgrade: workspace
+/// members plus the workspace root (for `[workspace.dependencies]`). The root
+/// is added only if it isn't already a member, so a single-crate repo doesn't
+/// duplicate its root manifest in the list.
+pub fn load_workspace() -> Result<Workspace> {
     let metadata = cargo_metadata::MetadataCommand::new()
         .no_deps()
         .exec()
         .context("Failed to run cargo metadata")?;
 
-    let mut paths: Vec<_> = metadata
+    let mut manifest_paths: Vec<_> = metadata
         .packages
         .iter()
         .filter(|pkg| metadata.workspace_members.contains(&pkg.id))
         .map(|pkg| pkg.manifest_path.as_std_path().to_path_buf())
         .collect();
 
-    // Also include workspace root Cargo.toml for [workspace.dependencies]
-    let root_manifest = metadata.workspace_root.as_std_path().join("Cargo.toml");
-    if !paths.iter().any(|p| p == &root_manifest) {
-        paths.push(root_manifest);
+    let root = metadata.workspace_root.as_std_path().to_path_buf();
+    let root_manifest = root.join("Cargo.toml");
+    if !manifest_paths.iter().any(|p| p == &root_manifest) {
+        manifest_paths.push(root_manifest);
     }
 
-    Ok(paths)
+    Ok(Workspace {
+        manifest_paths,
+        root,
+    })
 }
 
 pub fn update_dependency_in_workspace(
-    manifest_paths: &[std::path::PathBuf],
+    workspace: &Workspace,
     name: &str,
     version: &str,
 ) -> Result<bool> {
     let mut updated = false;
-    for manifest_path in manifest_paths {
+    for manifest_path in &workspace.manifest_paths {
         if update_dependency_version(manifest_path, name, version)? {
             updated = true;
         }
     }
-
     Ok(updated)
 }
 
@@ -122,95 +121,6 @@ fn update_dep_in_table(table: &mut toml_edit::Item, name: &str, version: &str) -
     false
 }
 
-pub fn cargo_check() -> Result<bool> {
-    run_command_inherit("cargo", &["check"])
-}
-
-pub fn cargo_test() -> Result<bool> {
-    run_command_inherit("cargo", &["test"])
-}
-
-pub fn cargo_clippy() -> Result<bool> {
-    run_command_inherit("cargo", &["clippy", "--", "-D", "warnings"])
-}
-
-pub fn cargo_fmt() -> Result<bool> {
-    run_command_inherit("cargo", &["fmt", "--check"])
-}
-
-pub fn git_add_and_commit(message: &str) -> Result<bool> {
-    let metadata = cargo_metadata::MetadataCommand::new()
-        .no_deps()
-        .exec()
-        .context("Failed to run cargo metadata")?;
-
-    let mut paths_to_stage: Vec<String> = metadata
-        .packages
-        .iter()
-        .filter(|pkg| metadata.workspace_members.contains(&pkg.id))
-        .map(|pkg| {
-            pkg.manifest_path
-                .as_std_path()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-
-    // Add workspace root Cargo.toml
-    let root_manifest = metadata
-        .workspace_root
-        .as_std_path()
-        .join("Cargo.toml")
-        .to_string_lossy()
-        .into_owned();
-    if !paths_to_stage.contains(&root_manifest) {
-        paths_to_stage.push(root_manifest);
-    }
-
-    // Add Cargo.lock
-    let lock_file = metadata
-        .workspace_root
-        .as_std_path()
-        .join("Cargo.lock")
-        .to_string_lossy()
-        .into_owned();
-    paths_to_stage.push(lock_file);
-
-    let path_refs: Vec<&str> = paths_to_stage.iter().map(|s| s.as_str()).collect();
-    let mut add_args = vec!["add", "--"];
-    add_args.extend(path_refs.iter());
-
-    let add_ok = run_command_inherit("git", &add_args)?;
-    if !add_ok {
-        return Ok(false);
-    }
-    run_command_inherit("git", &["commit", "-m", message])
-}
-
-pub fn git_restore() -> Result<bool> {
-    run_command_inherit("git", &["checkout", "--", "**/Cargo.toml", "Cargo.lock"])
-}
-
-pub fn check_git_repo() -> bool {
-    Command::new("git")
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-pub fn check_git_clean() -> bool {
-    Command::new("git")
-        .args(["status", "--porcelain"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .map(|o| o.status.success() && o.stdout.is_empty())
-        .unwrap_or(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,5 +190,24 @@ mod tests {
 
         let content = fs::read_to_string(&manifest).unwrap();
         assert!(content.contains("serde = \"2.0.0\""));
+    }
+
+    #[test]
+    fn test_update_dep_full_header_table() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = dir.path().join("Cargo.toml");
+        let mut f = fs::File::create(&manifest).unwrap();
+        writeln!(
+            f,
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[dependencies.serde]\nversion = \"1.0.0\"\nfeatures = [\"derive\"]"
+        )
+        .unwrap();
+
+        let updated = update_dependency_version(&manifest, "serde", "2.0.0").unwrap();
+        assert!(updated);
+
+        let content = fs::read_to_string(&manifest).unwrap();
+        assert!(content.contains("version = \"2.0.0\""));
+        assert!(content.contains("features = [\"derive\"]"));
     }
 }
