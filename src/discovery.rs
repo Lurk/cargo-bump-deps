@@ -102,31 +102,30 @@ fn search_dep(
     let latest_str = &crate_response.crate_data.max_version;
 
     let current_version_str = parser::version_from_req(req);
-    let current_version = Version::parse(&current_version_str).map_err(|e| {
+    let mut current_version = Version::parse(&current_version_str).map_err(|e| {
         format!(
             "{}: failed to parse current version '{}': {}",
             name, current_version_str, e
         )
     })?;
-    let latest_version = Version::parse(latest_str).map_err(|e| {
+    let mut latest_version = Version::parse(latest_str).map_err(|e| {
         format!(
             "{}: failed to parse latest version '{}': {}",
             name, latest_str, e
         )
     })?;
 
-    // Skip prerelease versions unless --pre is set
+    // Build metadata has no semver precedence and Cargo warns when it appears in
+    // version requirements. Strip it once at the discovery boundary so downstream
+    // code (manifest writes, commit messages, CLI output) stays clean.
+    current_version.build = semver::BuildMetadata::EMPTY;
+    latest_version.build = semver::BuildMetadata::EMPTY;
+
     if !pre && !latest_version.pre.is_empty() {
         return Ok(None);
     }
 
-    // Strip build metadata for comparison (semver spec says it has no precedence)
-    let mut current_cmp = current_version.clone();
-    current_cmp.build = semver::BuildMetadata::EMPTY;
-    let mut latest_cmp = latest_version.clone();
-    latest_cmp.build = semver::BuildMetadata::EMPTY;
-
-    if latest_cmp <= current_cmp {
+    if latest_version <= current_version {
         return Ok(None);
     }
 
@@ -156,19 +155,18 @@ mod tests {
         compatible_only: bool,
         pre: bool,
     ) -> Option<OutdatedPackage> {
-        let current_version = Version::parse(current_str).unwrap();
-        let latest_version = Version::parse(latest_str).unwrap();
+        let mut current_version = Version::parse(current_str).unwrap();
+        let mut latest_version = Version::parse(latest_str).unwrap();
+
+        // Mirror production: strip build metadata at the boundary.
+        current_version.build = semver::BuildMetadata::EMPTY;
+        latest_version.build = semver::BuildMetadata::EMPTY;
 
         if !pre && !latest_version.pre.is_empty() {
             return None;
         }
 
-        let mut current_cmp = current_version.clone();
-        current_cmp.build = semver::BuildMetadata::EMPTY;
-        let mut latest_cmp = latest_version.clone();
-        latest_cmp.build = semver::BuildMetadata::EMPTY;
-
-        if latest_cmp <= current_cmp {
+        if latest_version <= current_version {
             return None;
         }
 
@@ -242,5 +240,22 @@ mod tests {
         latest_cmp.build = semver::BuildMetadata::EMPTY;
 
         assert!(latest_cmp > current_cmp);
+    }
+
+    #[test]
+    fn outdated_package_strips_build_metadata_from_new_version() {
+        let result = search_dep_result("1.0.0", "1.0.1+spec-1.1.0", false, false)
+            .expect("1.0.1+spec-1.1.0 should be an upgrade from 1.0.0");
+
+        assert!(
+            result.new_version.build.is_empty(),
+            "new_version.build should be empty, got `{}`",
+            result.new_version
+        );
+        assert_eq!(
+            result.new_version.to_string(),
+            "1.0.1",
+            "stringified new_version must not contain a `+...` suffix"
+        );
     }
 }
