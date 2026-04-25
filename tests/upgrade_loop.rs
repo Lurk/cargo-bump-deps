@@ -71,8 +71,11 @@ fn happy_path_commits_and_updates_manifest() {
     let packages = vec![pkg("serde", "1.0.0", "1.0.1")];
     let summary = run_upgrade_loop(&ws, &packages, &base_args(), &steps).unwrap();
 
-    assert_eq!(summary.done, 1);
-    assert_eq!(summary.skipped, 0);
+    assert_eq!(summary.upgraded.len(), 1);
+    assert_eq!(summary.upgraded[0].name, "serde");
+    assert_eq!(summary.upgraded[0].old_version, "1.0.0");
+    assert_eq!(summary.upgraded[0].new_version, "1.0.1");
+    assert!(summary.skipped.is_empty());
     assert!(summary.failed.is_empty());
 
     let manifest = read_manifest(tmp.path());
@@ -98,8 +101,10 @@ fn dep_not_in_manifest_is_skipped() {
     let packages = vec![pkg("tokio", "1.0.0", "1.0.1")];
     let summary = run_upgrade_loop(&ws, &packages, &base_args(), &steps).unwrap();
 
-    assert_eq!(summary.done, 0);
-    assert_eq!(summary.skipped, 1);
+    assert!(summary.upgraded.is_empty());
+    assert_eq!(summary.skipped.len(), 1);
+    assert_eq!(summary.skipped[0].name, "tokio");
+    assert_eq!(summary.skipped[0].reason, "not found in any Cargo.toml");
     assert!(summary.failed.is_empty());
 
     env::set_current_dir(prev_cwd).unwrap();
@@ -146,8 +151,10 @@ fn no_revert_on_failure_leaves_manifest_dirty() {
     args.no_revert_on_failure = true;
     let summary = run_upgrade_loop(&ws, &packages, &args, &steps).unwrap();
 
-    assert_eq!(summary.done, 0);
+    assert!(summary.upgraded.is_empty());
     assert_eq!(summary.failed.len(), 1);
+    assert_eq!(summary.failed[0].name, "serde");
+    assert_eq!(summary.failed[0].step, "fake_fail");
     let manifest = read_manifest(tmp.path());
     assert!(manifest.contains("serde = \"1.0.1\""));
 
@@ -194,9 +201,11 @@ fn continue_on_failure_processes_remaining_packages() {
 
     let summary = run_upgrade_loop(&ws, &packages, &args, &steps).unwrap();
 
-    assert_eq!(summary.done, 1);
+    assert_eq!(summary.upgraded.len(), 1);
+    assert_eq!(summary.upgraded[0].name, "anyhow");
     assert_eq!(summary.failed.len(), 1);
-    assert_eq!(summary.failed[0].0, "serde");
+    assert_eq!(summary.failed[0].name, "serde");
+    assert_eq!(summary.failed[0].step, "fake_sometimes");
 
     let manifest = read_manifest(tmp.path());
     assert!(manifest.contains("serde = \"1.0.0\""));

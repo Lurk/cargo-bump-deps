@@ -10,10 +10,85 @@ use crate::manifest;
 use crate::parser;
 
 #[derive(Debug)]
+pub struct UpgradedEntry {
+    pub name: String,
+    pub old_version: String,
+    pub new_version: String,
+}
+
+#[derive(Debug)]
+pub struct FailedEntry {
+    pub name: String,
+    pub old_version: String,
+    pub new_version: String,
+    pub step: &'static str,
+}
+
+#[derive(Debug)]
+pub struct SkippedEntry {
+    pub name: String,
+    pub old_version: String,
+    pub new_version: String,
+    pub reason: &'static str,
+}
+
+#[derive(Debug, Default)]
 pub struct UpgradeSummary {
-    pub done: usize,
-    pub skipped: usize,
-    pub failed: Vec<(String, &'static str)>,
+    pub upgraded: Vec<UpgradedEntry>,
+    pub failed: Vec<FailedEntry>,
+    pub skipped: Vec<SkippedEntry>,
+}
+
+pub fn render_summary(summary: &UpgradeSummary) -> String {
+    let mut sections: Vec<String> = Vec::new();
+
+    if !summary.upgraded.is_empty() {
+        let mut s = format!(
+            "{}\n",
+            format!("Upgraded ({}):", summary.upgraded.len())
+                .green()
+                .bold()
+        );
+        for e in &summary.upgraded {
+            s.push_str(&format!(
+                "  {} {} -> {}\n",
+                e.name, e.old_version, e.new_version
+            ));
+        }
+        sections.push(s);
+    }
+
+    if !summary.failed.is_empty() {
+        let mut s = format!(
+            "{}\n",
+            format!("Failed ({}):", summary.failed.len()).red().bold()
+        );
+        for e in &summary.failed {
+            s.push_str(&format!(
+                "  {} {} -> {} ({})\n",
+                e.name, e.old_version, e.new_version, e.step
+            ));
+        }
+        sections.push(s);
+    }
+
+    if !summary.skipped.is_empty() {
+        let mut s = format!(
+            "{}\n",
+            format!("Skipped ({}):", summary.skipped.len())
+                .yellow()
+                .bold()
+        );
+        for e in &summary.skipped {
+            s.push_str(&format!(
+                "  {} {} -> {} ({})\n",
+                e.name, e.old_version, e.new_version, e.reason
+            ));
+        }
+        sections.push(s);
+    }
+
+    sections.join("\n")
 }
 
 pub struct CheckStep {
@@ -45,9 +120,7 @@ pub fn run_upgrade_loop(
 ) -> Result<UpgradeSummary> {
     let continue_on_failure = args.continue_on_failure || args.no_revert_on_failure;
     let total = packages.len();
-    let mut done = 0usize;
-    let mut skipped = 0usize;
-    let mut failed: Vec<(String, &'static str)> = Vec::new();
+    let mut summary = UpgradeSummary::default();
 
     for (i, pkg) in packages.iter().enumerate() {
         println!(
@@ -74,7 +147,12 @@ pub fn run_upgrade_loop(
                 "{}",
                 format!("SKIP: {} not found in any Cargo.toml", pkg.name).yellow()
             );
-            skipped += 1;
+            summary.skipped.push(SkippedEntry {
+                name: pkg.name.clone(),
+                old_version: pkg.old_version.to_string(),
+                new_version: pkg.new_version.to_string(),
+                reason: "not found in any Cargo.toml",
+            });
             continue;
         }
 
@@ -94,7 +172,12 @@ pub fn run_upgrade_loop(
             }
 
             if continue_on_failure {
-                failed.push((pkg.name.clone(), step_name));
+                summary.failed.push(FailedEntry {
+                    name: pkg.name.clone(),
+                    old_version: pkg.old_version.to_string(),
+                    new_version: pkg.new_version.to_string(),
+                    step: step_name,
+                });
                 continue;
             }
 
@@ -111,14 +194,14 @@ pub fn run_upgrade_loop(
         );
         git::add_and_commit(workspace, &commit_msg)?;
         println!("{}", format!("Committed: {}", commit_msg).green());
-        done += 1;
+        summary.upgraded.push(UpgradedEntry {
+            name: pkg.name.clone(),
+            old_version: pkg.old_version.to_string(),
+            new_version: pkg.new_version.to_string(),
+        });
     }
 
-    Ok(UpgradeSummary {
-        done,
-        skipped,
-        failed,
-    })
+    Ok(summary)
 }
 
 pub fn run(args: DepsArgs) -> Result<()> {
@@ -218,23 +301,18 @@ pub fn run(args: DepsArgs) -> Result<()> {
     let summary = run_upgrade_loop(&workspace, &packages, &args, &steps)?;
     let elapsed = run_start.elapsed();
 
-    if !summary.failed.is_empty() {
-        println!(
-            "\n{}",
-            format!("Failed ({}):", summary.failed.len()).red().bold()
-        );
-        for (name, step) in &summary.failed {
-            println!("  {} ({})", name, step);
-        }
+    let summary_text = render_summary(&summary);
+    if !summary_text.is_empty() {
+        println!("\n{}", summary_text);
     }
 
     println!(
-        "\n{}",
+        "{}",
         format!(
             "Done! {} upgraded, {} failed, {} skipped in {:.1}s",
-            summary.done,
+            summary.upgraded.len(),
             summary.failed.len(),
-            summary.skipped,
+            summary.skipped.len(),
             elapsed.as_secs_f64()
         )
         .green()
@@ -249,4 +327,114 @@ pub fn run(args: DepsArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_upgraded(name: &str, old: &str, new: &str) -> UpgradedEntry {
+        UpgradedEntry {
+            name: name.into(),
+            old_version: old.into(),
+            new_version: new.into(),
+        }
+    }
+
+    fn mk_failed(name: &str, old: &str, new: &str, step: &'static str) -> FailedEntry {
+        FailedEntry {
+            name: name.into(),
+            old_version: old.into(),
+            new_version: new.into(),
+            step,
+        }
+    }
+
+    fn mk_skipped(name: &str, old: &str, new: &str, reason: &'static str) -> SkippedEntry {
+        SkippedEntry {
+            name: name.into(),
+            old_version: old.into(),
+            new_version: new.into(),
+            reason,
+        }
+    }
+
+    fn disable_color() {
+        // set_override is process-global; tests in this module never assert
+        // on color codes, so permanently forcing it off is safe here.
+        colored::control::set_override(false);
+    }
+
+    #[test]
+    fn renders_all_three_sections() {
+        disable_color();
+        let summary = UpgradeSummary {
+            upgraded: vec![
+                mk_upgraded("clap", "4.6.0", "4.6.1"),
+                mk_upgraded("semver", "1.0.27", "1.0.28"),
+            ],
+            failed: vec![mk_failed("serde", "1.0.210", "1.0.220", "cargo test")],
+            skipped: vec![mk_skipped(
+                "foo",
+                "0.1.0",
+                "0.2.0",
+                "not found in any Cargo.toml",
+            )],
+        };
+        let out = render_summary(&summary);
+        assert!(out.contains("Upgraded (2):"), "output:\n{out}");
+        assert!(out.contains("  clap 4.6.0 -> 4.6.1"), "output:\n{out}");
+        assert!(out.contains("  semver 1.0.27 -> 1.0.28"), "output:\n{out}");
+        assert!(out.contains("Failed (1):"), "output:\n{out}");
+        assert!(
+            out.contains("  serde 1.0.210 -> 1.0.220 (cargo test)"),
+            "output:\n{out}"
+        );
+        assert!(out.contains("Skipped (1):"), "output:\n{out}");
+        assert!(
+            out.contains("  foo 0.1.0 -> 0.2.0 (not found in any Cargo.toml)"),
+            "output:\n{out}"
+        );
+    }
+
+    #[test]
+    fn omits_empty_sections() {
+        disable_color();
+        let summary = UpgradeSummary {
+            upgraded: vec![mk_upgraded("clap", "4.6.0", "4.6.1")],
+            failed: vec![],
+            skipped: vec![],
+        };
+        let out = render_summary(&summary);
+        assert!(out.contains("Upgraded (1):"));
+        assert!(!out.contains("Failed"), "should omit empty Failed section");
+        assert!(
+            !out.contains("Skipped"),
+            "should omit empty Skipped section"
+        );
+    }
+
+    #[test]
+    fn empty_summary_renders_empty_string() {
+        disable_color();
+        let summary = UpgradeSummary::default();
+        assert_eq!(render_summary(&summary), "");
+    }
+
+    #[test]
+    fn entries_preserve_insertion_order() {
+        disable_color();
+        let summary = UpgradeSummary {
+            upgraded: vec![
+                mk_upgraded("b", "1.0.0", "1.0.1"),
+                mk_upgraded("a", "2.0.0", "2.0.1"),
+            ],
+            failed: vec![],
+            skipped: vec![],
+        };
+        let out = render_summary(&summary);
+        let b_pos = out.find("  b 1.0.0").expect("b missing");
+        let a_pos = out.find("  a 2.0.0").expect("a missing");
+        assert!(b_pos < a_pos, "order should be preserved; output:\n{out}");
+    }
 }
