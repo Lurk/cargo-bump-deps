@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 pub struct Workspace {
     pub manifest_paths: Vec<PathBuf>,
     pub root: PathBuf,
+    pub lockfile_tracked: bool,
 }
 
 /// Enumerate all manifests that should be edited during an upgrade: workspace
@@ -30,10 +32,27 @@ pub fn load_workspace() -> Result<Workspace> {
         manifest_paths.push(root_manifest);
     }
 
+    let lockfile_tracked = lockfile_is_tracked(&root);
+
     Ok(Workspace {
         manifest_paths,
         root,
+        lockfile_tracked,
     })
+}
+
+/// Returns true iff git tracks `Cargo.lock` at `root`. Best-effort: any git
+/// failure (not a repo, git missing, etc.) is treated as "not tracked".
+fn lockfile_is_tracked(root: &Path) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["ls-files", "--error-unmatch", "Cargo.lock"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 pub fn update_dependency_in_workspace(
